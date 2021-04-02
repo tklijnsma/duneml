@@ -5,6 +5,8 @@ import awkward as ak
 from math import sqrt
 import networkx as nx
 import tqdm
+import os, os.path as osp
+from time import strftime
 
 '''Torch imports'''
 import torch
@@ -28,13 +30,24 @@ import pdb
 
 
 def center_embedding_truth(coords, truth_label_by_hits, device='cpu'):
-    truth_ordering = torch.argsort(truth_label_by_hits)    
+    _debug = False
+    def debug(*args, **kwargs):
+        if _debug: print('debug center_embedding_truth: ', *args, **kwargs)
+
+    debug('coords: {}; truth_label_by_hits: {}'.format(coords.shape, truth_label_by_hits.shape))
+
+    truth_ordering = torch.argsort(truth_label_by_hits)
+    debug('truth_ordering: {}'.format(truth_ordering.shape))
     uniques, counts = torch.unique(truth_label_by_hits, return_counts=True)
+    debug('uniques: {}; counts: {}'.format(uniques.shape, counts.shape))
+
 
     n_hits = truth_label_by_hits.size()[0]
     n_clusters = uniques.size()[0]
+    debug(f'n_hits: {n_hits}; n_clusters: {n_clusters}')
     
-    centers = scatter_mean(coords, truth_label_by_hits, dim=0, dim_size=n_clusters)
+    centers = scatter_mean(coords.T, truth_label_by_hits, dim=1, dim_size=n_clusters).T
+    debug(f'centers: {centers.shape}')
 
     all_dists = torch.cdist(coords.expand(n_clusters,-1,-1).contiguous(), centers[:,None])
     copied_truth = truth_label_by_hits.expand(n_clusters,-1)
@@ -45,7 +58,9 @@ def center_embedding_truth(coords, truth_label_by_hits, device='cpu'):
     
     dists_out = all_dists.reshape(n_clusters*n_hits)
     truth_out = truth.reshape(n_clusters*n_hits)
-    
+
+    debug('dists_out: {}; truth_out: {}'.format(dists_out.shape, truth_out.shape))    
+    # debug('dists_out:\n{}\n; truth_out: \n{}'.format(dists_out[:6], truth_out[:6]))
     return (dists_out, truth_out)
 
     return out_truths
@@ -245,12 +260,12 @@ class SimpleEmbeddingNetwork(nn.Module):
         #     nn.Linear(hidden_dim//2, nprops_out)
         # )       
 
-        self._debug = True
+        self._debug = False
 
 
     def forward(self, x, batch: OptTensor=None):
         def debug(*args, **kwargs):
-            if self._debug: print('debug: ', *args, **kwargs)
+            if self._debug: print('debug forward: ', *args, **kwargs)
 
         if batch is None:
             batch = torch.zeros(x.size()[0], dtype=torch.int64, device=x.device)
@@ -264,7 +279,7 @@ class SimpleEmbeddingNetwork(nn.Module):
         for ec in self.edgeconvs:
             edge_index = knn_graph(x_emb, self.k, batch, loop=False, flow=ec.flow)
             x_emb = x_emb + ec(x_emb, edge_index)
-        debug('edgeconvs done: {}, edge_index: {}'.format(x_emb.shape, edge_index.shape))
+        debug('edgeconvs done: x_emd: {}, edge_index: {}'.format(x_emb.shape, edge_index.shape))
     
         '''
         [1]
@@ -287,6 +302,7 @@ class SimpleEmbeddingNetwork(nn.Module):
         inputnet_cat is residual to inputnet
         '''
         x_cat = self.inputnet_cat(x) #+ x_emb
+        debug('x_cat: {}'.format(x_cat.shape))
 
         '''
         [2]
@@ -297,8 +313,8 @@ class SimpleEmbeddingNetwork(nn.Module):
         
         edge_scores = self.edge_classifier(torch.cat([x_cat[edge_index[0]], 
                                                       x_cat[edge_index[1]]], 
-                                                      dim=1)).squeeze()
-        
+                                                      dim=1))#.squeeze()
+        debug('Created edge_scores: {}'.format(edge_scores.shape))
 
         '''
         use the predicted graph to generate disjoint subgraphs
@@ -332,20 +348,23 @@ class SimpleEmbeddingNetwork(nn.Module):
         # props_pooled, cluster_batch = max_pool_x(cluster_map, x_prop, batch)
         # cluster_props = self.property_predictor(props_pooled)    
 
-        return out, edge_scores, edge_index, cluster_map, cluster_batch
+        return out, edge_scores, edge_index, cluster_map #, cluster_batch
 
 
 
 
 
 def main():
+    ckpt_dir = strftime('ckpts_%b%d_%H%M%S')
+    n_epochs = 10
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     norm = torch.tensor([1., 1., 1.])
     model = SimpleEmbeddingNetwork(
         input_dim=3, 
         hidden_dim=16, 
-        output_dim=2,
-        ncats_out=1,
+        output_dim=3,
+        ncats_out=2,
         conv_depth=2, 
         edgecat_depth=2, 
         k=4,
@@ -353,11 +372,12 @@ def main():
         norm=norm,
         ).to(device)
     print('Model:\n',model)
+    print('Using device', device)
 
     from dataset import DuneDataset
     dataset = DuneDataset('data')
 
-    batch_size = 16
+    batch_size = 8
     train_dataset = DuneDataset('data/train')
     test_dataset = DuneDataset('data/test')
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
@@ -375,99 +395,31 @@ def main():
 
 
     def train(epoch):
+        _debug = False
+        def debug(*args, **kwargs):
+            if _debug: print('debug train: ', *args, **kwargs)
+
+
         print('Training epoch', epoch)
         model.train()
         # scheduler.step()
 
+        avg_loss = 0.
+
         for data in tqdm.tqdm(train_loader, total=len(train_loader)):
             data = data.to(device)
+            data.y -= 1
             optimizer.zero_grad()
-            result = model(data.x.type(torch.FloatTensor))
-            print(result)
-            break
+            x = data.x.type(torch.FloatTensor).to(device)
+            # batch = x.unsqueeze(dim=0)
+            # print('data.x: {} -> x: {}'.format(data.x.shape, x.shape))
+            coords, edge_scores, edges, cluster_map = model(x, data.batch)
 
-
-
-
-    train(0)
-
-    return
-
-
-
-
-
-
-
-
-
-
-
-    model.train()
-
-    combo_loss_avg = []
-    sep_loss_avg = []
-    pred_cluster_properties = []
-    edge_acc_track = np.zeros(config.train_samples, dtype=np.float)
-    
-    color_cycle = plt.cm.coolwarm(np.linspace(0.1,0.9,(config.input_classes+config.input_class_delta)*config.k))
-    marker_hits =    ['^','v','s','h','<','>']
-    marker_centers = ['+','1','x','3','2','4']
-
-    if(input_classes_rand==None):
-        '''Input Class +- Range'''
-        input_classes_rand = torch.randint(low = config.input_classes - config.input_class_delta, 
-                                            high= config.input_classes + config.input_class_delta+1,
-                                            size= (config.train_samples,), device=torch.device('cuda'))
-
-    print('\n[TRAIN]:')
-
-    t1 = timer()
-    
-    for epoch in range(start_epoch, start_epoch+config.total_epochs):
-        
-        '''book-keeping'''
-        sep_loss_track = np.zeros((config.train_samples,3), dtype=np.float)
-        avg_loss_track = np.zeros(config.train_samples, dtype=np.float)
-        edge_acc_track = np.zeros(config.train_samples, dtype=np.float)
-        edge_acc_conf  = np.zeros((config.train_samples,config.ncats_out,config.ncats_out), dtype=np.int)
-        pred_cluster_properties = []
-        avg_loss = 0
-
-        opt.zero_grad()
-        # if opt.param_groups[0]['lr'] < lr_threshold_1 and not converged_embedding:
-        #     converged_embedding = True
-        #     opt.param_groups[1]['lr'] = lr_threshold_1
-        #     opt.param_groups[2]['lr'] = lr_threshold_2
-            
-        # if opt.param_groups[1]['lr'] < lr_threshold_1 and not converged_categorizer and converged_embedding:
-        #     converged_categorizer = True
-        #     opt.param_groups[2]['lr'] = lr_threshold_2
-        
-
-        for idata, d in enumerate(data[0:config.train_samples]):            
-            
-            d_gpu = d.to('cuda')
-            y_orig = d_gpu.y
-
-            d_gpu.x = d_gpu.x[d_gpu.y < input_classes_rand[idata]] 
-            d_gpu.x = (d_gpu.x - torch.min(d_gpu.x, axis=0).values)/(torch.max(d_gpu.x, axis=0).values - torch.min(d_gpu.x, axis=0).values) # Normalise
-            d_gpu.y_particle_barcodes = d_gpu.y_particle_barcodes[d_gpu.y < input_classes_rand[idata]]
-            d_gpu.y = d_gpu.y[d_gpu.y < input_classes_rand[idata]]
-            # plot_event(d_gpu.x.detach().cpu().numpy(), d_gpu.y.detach().cpu().numpy())
-            
-            '''
-            project embedding to some nd latent space where it is seperable using the deep model
-            compute edge net scores and seperated cluster properties with the ebedding
-            '''
-            coords, edge_scores, edges, cluster_map, cluster_props, cluster_batch = model(d_gpu.x)
-
-            #-------------- LINDSEY TRAINING VERSION ------------------         
             '''Compute latent space distances'''
-            d_hinge, y_hinge = center_embedding_truth(coords, d_gpu.y, device='cuda')
+            d_hinge, y_hinge = center_embedding_truth(coords, data.y, device=device)
             
             '''Compute centers in latent space '''
-            centers = scatter_mean(coords, d_gpu.y, dim=0, dim_size=(torch.max(d_gpu.y).item()+1))
+            centers = scatter_mean(coords, data.y, dim=0, dim_size=(torch.max(data.y).item()+1))
             
             '''Compute Losses'''
             # Hinge: embedding distance based loss
@@ -478,144 +430,95 @@ def main():
                                                 margin=2.0, reduction='mean')
             
             #Cross Entropy: Edge categories loss
-            y_edgecat = (d_gpu.y[edges[0]] == d_gpu.y[edges[1]]).long()
+            y_edgecat = (data.y[edges[0]] == data.y[edges[1]]).long()
+
+            debug('edge_scores: {}; y_edgecat: {}'.format(edge_scores.shape, y_edgecat.shape))
+            # debug('edge_scores: {}; y_edgecat: {}'.format(edge_scores[:6], y_edgecat[:6]))
+
+            # edge_scores = edge_scores[:,0]
+            # debug('edge_scores: {}'.format(edge_scores.shape))
+
+            # y_edgecat = y_edgecat.unsqueeze(1)
+            # debug('y_edgecat: {}'.format(y_edgecat.shape))
+
+            # edge_predictions = torch.argmax(
+            #     torch.exp(torch.nn.functional.log_softmax(edge_scores, 1)), 1
+            #     )
+            # debug('edge_predictions:')
+            # debug(edge_predictions.shape)
+            # debug(edge_predictions)
+
             loss_ce = F.cross_entropy(edge_scores, y_edgecat, reduction='mean')
+
             
-            #MSE: Cluster loss
-            pred_cluster_match, y_properties = match_cluster_targets(cluster_map, d_gpu.y, d_gpu)
-            mapped_props = cluster_props[pred_cluster_match].squeeze()
-            props_pt = F.softplus(mapped_props[:,0])
-            props_eta = 5.0*(2*torch.sigmoid(mapped_props[:,1]) - 1)
-            props_phi = math.pi*(2*torch.sigmoid(mapped_props[:,2]) - 1)
+            # #MSE: Cluster loss
+            # pred_cluster_match, y_properties = match_cluster_targets(cluster_map, data.y, data)
+            # mapped_props = cluster_props[pred_cluster_match].squeeze()
+            # props_pt = F.softplus(mapped_props[:,0])
+            # props_eta = 5.0*(2*torch.sigmoid(mapped_props[:,1]) - 1)
+            # props_phi = math.pi*(2*torch.sigmoid(mapped_props[:,2]) - 1)
     
-            loss_mse = ( F.mse_loss(props_pt, y_properties[:,0], reduction='mean') +
-                         F.mse_loss(props_eta, y_properties[:,1], reduction='mean') +
-                         F.mse_loss(props_phi, y_properties[:,2], reduction='mean') ) / model.nprops_out
+            # loss_mse = ( F.mse_loss(props_pt, y_properties[:,0], reduction='mean') +
+            #              F.mse_loss(props_eta, y_properties[:,1], reduction='mean') +
+            #              F.mse_loss(props_phi, y_properties[:,2], reduction='mean') ) / model.nprops_out
             
             #Combined loss
-            loss = (loss_hinge + loss_ce + loss_mse) / config.batch_size
-            avg_loss_track[idata] = loss.item()
-            
-            avg_loss += loss.item()
+            # loss = (loss_hinge + loss_ce + loss_mse) / config.batch_size
+            loss = (loss_hinge + loss_ce) / batch_size
+            # avg_loss += loss.item()
 
-            '''Track Losses, Acuracies and Properties'''   
-            sep_loss_track[idata,0] = loss_hinge.detach().cpu().numpy() / config.batch_size
-            sep_loss_track[idata,1] = loss_ce.detach().cpu().numpy() / config.batch_size
-            sep_loss_track[idata,2] = loss_mse.detach().cpu().numpy() / config.batch_size
+            print('loss_hinge:', loss_hinge.item())
+            print('loss_ce:', loss_ce.item())
+            print('loss:', loss.item())
+            # print('avg_loss:', avg_loss)
 
-            true_edges = y_edgecat.sum().item()
-            edge_accuracy = (torch.argmax(edge_scores, dim=1) == y_edgecat).sum().item() / (y_edgecat.size()[0])
-            edge_acc_track[idata] = edge_accuracy
-
-            edge_acc_conf[idata,:,:] = confusion_matrix(y_edgecat.detach().cpu().numpy(), torch.argmax(edge_scores, dim=1).detach().cpu().numpy())
-
-            true_prop = y_properties.detach().cpu().numpy()
-            pred_prop = cluster_props[pred_cluster_match].squeeze().detach().cpu().numpy()
-            pred_cluster_properties.append([(1./y_properties[:,0], 1./y_properties[:,1], 1./y_properties[:,2]),
-                                            (1./props_pt), (1./props_eta), (1./props_phi)])
-
-            '''Plot Training Clusters'''
-            # if (config.make_train_plots==True):
-            if (config.make_train_plots==True and (epoch==0 or epoch==start_epoch+config.total_epochs-1) and idata%(config.train_samples/10)==0):     
-                fig = plt.figure(figsize=(8,8))
-                if config.output_dim==3:
-                    ax = fig.add_subplot(111, projection='3d')
-                    for i in range(centers.size()[0]):  
-                        ax.scatter(coords[d_gpu.y == i,0].detach().cpu().numpy(), 
-                            coords[d_gpu.y == i,1].detach().cpu().numpy(),
-                            coords[d_gpu.y == i,2].detach().cpu().numpy(),
-                            color=color_cycle[(i*config.k)%((config.input_classes+config.input_class_delta)*config.k - 1)], marker = marker_hits[i%6], s=100)
-
-                        ax.scatter(centers[i,0].detach().cpu().numpy(), 
-                            centers[i,1].detach().cpu().numpy(), 
-                            centers[i,2].detach().cpu().numpy(), 
-                            marker=marker_centers[i%6], color=color_cycle[(i*config.k)%((config.input_classes+config.input_class_delta)*config.k- 1)], s=100); 
-                elif config.output_dim==2:
-                    for i in range(int(centers.size()[0])):
-                            plt.scatter(coords[d_gpu.y == i,0].detach().cpu().numpy(), 
-                                        coords[d_gpu.y == i,1].detach().cpu().numpy(),
-                                        color=color_cycle[(i*config.k)%((config.input_classes+config.input_class_delta)*config.k - 1)], 
-                                        marker = marker_hits[i%6] )
-
-                            plt.scatter(centers[i,0].detach().cpu().numpy(), 
-                                        centers[i,1].detach().cpu().numpy(), 
-                                        color=color_cycle[(i*config.k)%((config.input_classes+config.input_class_delta)*config.k - 1)],  
-                                        edgecolors='b',
-                                        marker=marker_centers[i%6]) 
-        
-                plt.title('train_plot_epoch_'+str(epoch)+'_ex_'+str(idata)+'_EdgeAcc_'+str('{:.5e}'.format(edge_accuracy)))
-                plt.savefig(config.plot_path+'train_plot_epoch_'+str(epoch)+'_ex_'+str(idata)+'.pdf')   
-                plt.close(fig)
-
-            '''Loss Backward''' 
             loss.backward()
-            
-            '''Update Weights'''
-            if ( ((idata + 1) % config.batch_size == 0) or ((idata + 1) == config.train_samples) ):
-                opt.step()
-                if(config.schedLR):
-                    sched.step(avg_loss)
-        
+            optimizer.step()
+            scheduler.step(loss.item())
 
-        '''track Epoch Updates'''
-        combo_loss_avg.append(avg_loss_track.mean())
-        sep_loss_avg.append([sep_loss_track[:,0].mean(), sep_loss_track[:,1].mean(), sep_loss_track[:,2].mean()])
-        
-        true_0_1 = edge_acc_conf.sum(axis=2)
-        pred_0_1 = edge_acc_conf.sum(axis=1) 
-        total_true_0_1 =   true_0_1.sum(axis=0)
-        total_pred_0_1 =   pred_0_1.sum(axis=0)
-        
-        # print('true_0_1:',true_0_1)
-        # pdb.set_trace()
+            break
 
-        if(epoch%10==0 or epoch==start_epoch or epoch==start_epoch+config.total_epochs-1):
-            '''Per Epoch Stats'''
-            print('--------------------')
-            print("Epoch: {}\nLosses:\nCombined: {:.5e}\nHinge_distance: {:.5e}\nCrossEntr_Edges: {:.5e}\nMSE_centers: {:.5e}".format(
-                    epoch,combo_loss_avg[epoch-start_epoch],sep_loss_avg[epoch-start_epoch][0],sep_loss_avg[epoch-start_epoch][1],sep_loss_avg[epoch-start_epoch][2]))
-            print("LR: opt.param_groups \n[0]: {:.9e}  \n[1]: {:.9e}  \n[2]: {:.9e}".format(opt.param_groups[0]['lr'], opt.param_groups[1]['lr'], opt.param_groups[2]['lr']))
-            print("Track/Class Count Variation per event: {} +/- {} ".format(config.input_classes , config.input_class_delta))
-            print("[TRAIN] Average Edge Accuracies over {} events: {:.5e}".format(config.train_samples,edge_acc_track.mean()) )
-            print("Total true edges [class_0: {:6d}] [class_1: {:6d}]".format(total_true_0_1[0],total_true_0_1[1]))
-            print("Total pred edges [class_0: {:6d}] [class_1: {:6d}]".format(total_pred_0_1[0],total_pred_0_1[1]))
-        
-            if(epoch==start_epoch+config.total_epochs-1 or epoch==start_epoch):
-                logtofile(config.plot_path, config.logfile_name, "Epoch: {}\nLosses:\nCombined: {:.5e}\nHinge_distance: {:.5e}\nCrossEntr_Edges: {:.5e}\nMSE_centers: {:.5e}".format(
-                    epoch,combo_loss_avg[epoch-start_epoch],sep_loss_avg[epoch-start_epoch][0],sep_loss_avg[epoch-start_epoch][1],sep_loss_avg[epoch-start_epoch][2]))
-                logtofile(config.plot_path, config.logfile_name,"LR: opt.param_groups \n[0]: {:.9e}  \n[1]: {:.9e}  \n[2]: {:.9e}".format(opt.param_groups[0]['lr'], opt.param_groups[1]['lr'], opt.param_groups[2]['lr']))
-                logtofile(config.plot_path, config.logfile_name,"Track/Class Count Variation per event: {} +/- {} ".format(config.input_classes , config.input_class_delta))
-                logtofile(config.plot_path, config.logfile_name,"Average Edge Accuracies over {} events, {} Tracks: {:.5e}".format(config.train_samples, config.input_classes,edge_acc_track.mean()) )                    
-                logtofile(config.plot_path, config.logfile_name,"Total true edges [class_0: {:6d}] [class_1: {:6d}]".format(total_true_0_1[0],total_true_0_1[1]))
-                logtofile(config.plot_path, config.logfile_name,"Total pred edges [class_0: {:6d}] [class_1: {:6d}]".format(total_pred_0_1[0],total_pred_0_1[1]))                
-                logtofile(config.plot_path, config.logfile_name,'--------------------------')
 
-            if(combo_loss_avg[epoch-start_epoch] < best_loss):
-                best_loss = combo_loss_avg[epoch-start_epoch]
-                is_best = True
-                checkpoint = {
-                    'epoch': epoch+1,
-                    'state_dict': model.state_dict(),
-                    'optimizer': opt.state_dict(),
-                    'scheduler': sched.state_dict(),
-                    'converged_embedding':False,
-                    'converged_categorizer':False,
-                    'best_loss':best_loss,
-                    'input_classes_rand':input_classes_rand
-                }
-                checkpoint_name = 'event'+str(config.train_samples)+'_classes' + str(config.input_classes) + '_epoch'+str(epoch) + '_loss' + '{:.5e}'.format(combo_loss_avg[epoch-start_epoch]) + '_edgeAcc' + '{:.5e}'.format(edge_acc_track.mean())
-                save_checkpoint(checkpoint, is_best, config.checkpoint_path, checkpoint_name)
+    def test():
+        with torch.no_grad():
+            model.eval()
+            n_correct = 0
+            n_total = 0
+            for data in tqdm.tqdm(test_loader, total=len(test_loader)):
+                data = data.to(device)
+                data.y -= 1
+                x = data.x.type(torch.FloatTensor).to(device)
+                coords, edge_scores, edges, cluster_map = model(x, data.batch)
+                edge_predictions = torch.argmax(
+                    torch.exp(torch.nn.functional.log_softmax(edge_scores, 1)), 1
+                    )
 
-    t2 = timer()
-    print('--------------------')
-    print("Training Complted in {:.5f}mins.".format((t2-t1)/60.0))
+                y_edgecat = (data.y[edges[0]] == data.y[edges[1]]).long()
 
-    # print('1/properties: ',1/y_properties)
-    # print('pred cluster matches: ',pred_cluster_match)
-    # print('1/cluster_prop[cluster_match]: ',1/cluster_props[pred_cluster_match].squeeze())    
+                n_correct += torch.sum(edge_predictions == y_edgecat)
+                n_total += edge_predictions.shape[0]
+                break
+        acc = n_correct / n_total
+        print(f'Test acc: {acc:.3f} ({n_correct}/{n_total})')
+        return acc
 
-    return combo_loss_avg, sep_loss_avg, edge_acc_track, pred_cluster_properties, edge_acc_conf
 
+    def write_checkpoint(checkpoint_number=None, best=False):
+        ckpt = 'ckpt_best.pth.tar' if best else 'ckpt_{0}.pth.tar'.format(checkpoint_number)
+        ckpt = osp.join(ckpt_dir, ckpt)
+        os.makedirs(ckpt_dir, exist_ok=True)
+        if best: print('Saving epoch {0} as new best'.format(checkpoint_number))
+        torch.save(dict(model=model.state_dict()), ckpt)
+
+
+    best_test_acc = 0.0
+    for epoch in range(1, 1+n_epochs):
+        train(epoch)
+        test_acc = test()
+        write_checkpoint(epoch)
+        if test_acc > best_test_acc:
+            best_test_acc = test_acc
+            write_checkpoint(epoch, best=True)
 
 
 
