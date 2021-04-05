@@ -406,7 +406,7 @@ def main():
 
         avg_loss = 0.
 
-        for data in tqdm.tqdm(train_loader, total=len(train_loader)):
+        for data in tqdm.tqdm(train_loader, total=len(train_loader), position=0, leave=True):
             data = data.to(device)
             data.y -= 1
             optimizer.zero_grad()
@@ -476,15 +476,13 @@ def main():
             optimizer.step()
             scheduler.step(loss.item())
 
-            break
-
 
     def test():
         with torch.no_grad():
             model.eval()
             n_correct = 0
             n_total = 0
-            for data in tqdm.tqdm(test_loader, total=len(test_loader)):
+            for data in tqdm.tqdm(test_loader, total=len(test_loader), position=0, leave=True):
                 data = data.to(device)
                 data.y -= 1
                 x = data.x.type(torch.FloatTensor).to(device)
@@ -497,7 +495,6 @@ def main():
 
                 n_correct += torch.sum(edge_predictions == y_edgecat)
                 n_total += edge_predictions.shape[0]
-                break
         acc = n_correct / n_total
         print(f'Test acc: {acc:.3f} ({n_correct}/{n_total})')
         return acc
