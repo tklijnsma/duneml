@@ -375,8 +375,6 @@ def main():
     print('Using device', device)
 
     from dataset import DuneDataset
-    dataset = DuneDataset('data')
-
     batch_size = 8
     train_dataset = DuneDataset('data/train')
     test_dataset = DuneDataset('data/test')

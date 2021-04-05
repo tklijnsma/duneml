@@ -76,6 +76,7 @@ class DuneDataset(Dataset):
     def processed_file_names(self):
         if not hasattr(self,'processed_files'):
             self.processed_files = [ f'data_{i}.pt' for i in range(len(self.raw_file_names)) ]
+            self.unshuffled_processed_files = self.processed_files[:]
             random.shuffle(self.processed_files)
         return self.processed_files
     
@@ -86,24 +87,15 @@ class DuneDataset(Dataset):
         # print('Loading', self.processed_dir+'/'+self.processed_files[i])
         data = torch.load(self.processed_dir+'/'+self.processed_files[i])
         return data
-
-    def npz_to_features(self, npz_file):
-        d = np.load(npz_file)
-        deta = d['eta'] - d['jet_eta']
-        deta /= 2.
-
-        dphi = d['phi'] - d['jet_phi']
-        dphi %= 2.*pi # Map to 0..2pi range
-        dphi[dphi > pi] = dphi[dphi > pi] - 2.*pi # Map >pi to -pi..0 range
-        dphi /= 2. # Normalize to approximately -1..1 range
-                   # (jet size is 1.5, but some things extend up to 2.)
-
-        # Normalizations kind of guestimated so that 2 standard deviations are within 0..1
-        pt = d['pt'] / 30.
-        energy = d['energy'] / 100.
-
-        return pt, deta, dphi, energy
     
+    def get_npz(self, i):
+        '''
+        Translates shuffled index back to the original npz file
+        '''
+        proc = self.processed_file_names[i]
+        npz = self.raw_file_names[self.unshuffled_processed_files.index(proc)]
+        return np.load(self.raw_dir + '/' + npz)
+
     def process(self):
         for i, f in tqdm.tqdm(enumerate(self.raw_file_names), total=len(self.raw_file_names)):
             d = np.load(self.raw_dir + '/' + f)
