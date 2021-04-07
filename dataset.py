@@ -59,12 +59,24 @@ class ExtremaRecorder():
         plt.savefig(outfile, bbox_inches='tight')
 
 
+def download_points():
+    if not osp.isfile('points.txt'):
+        if not osp.isfile('points.tgz'):
+            url = 'https://home.fnal.gov/~tjyang/points.tgz'
+            print('Downloading', url)
+            from urllib.request import urlretrieve
+            urlretrieve(url, 'points.tgz')
+        print('Extracting points.tgz')
+        import tarfile
+        tar = tarfile.open('points.tgz', 'r:gz')
+        tar.extractall()
+        tar.close()
+        assert osp.isfile('points.txt')
+
+
 class DuneDataset(Dataset):
     """PyTorch geometric dataset from processed hit information"""
-    
-    def download(self):
-        pass
-    
+
     @property
     def raw_file_names(self):
         if not hasattr(self, '_raw_file_names'):
@@ -100,6 +112,7 @@ class DuneDataset(Dataset):
         for i, f in tqdm.tqdm(enumerate(self.raw_file_names), total=len(self.raw_file_names)):
             d = np.load(self.raw_dir + '/' + f)
             X = d['X']
+            # Normalizations: Gets ~99% of events between 0. and 1.
             X[:,0] = 0.5 + (X[:,0] / 1600.)
             X[:,1] /= 600.
             X[:,2] /= 700.
@@ -132,6 +145,7 @@ class DuneDataset(Dataset):
         ext_c.hist('extrema_c.png')
 
 def make_npzs():
+    print('Making individual .npz files...')
     train_outdir = 'data/train/raw/'
     test_outdir = 'data/test/raw/'
     if not osp.isdir(train_outdir): os.makedirs(train_outdir)
@@ -145,6 +159,7 @@ def make_npzs():
                     current_event = np.array(current_event)
                     X = current_event[:,1:]
                     y = current_event[:,0].flatten()
+                    # 20% to test, 80% to train
                     outdir = test_outdir if i_event % 5 == 0 else train_outdir
                     np.savez(outdir + f'/{i_event}.npz', X=X, y=y)
                     del current_event
@@ -164,12 +179,14 @@ def main():
     args = parser.parse_args()
 
     if args.action == 'fromscratch':
+        download_points()
         if osp.isdir('data'): shutil.rmtree('data')
         make_npzs()
         DuneDataset('data/train')
         DuneDataset('data/test')
 
     elif args.action == 'onlynpzs':
+        download_points()
         if osp.isdir('data'): shutil.rmtree('data')
         make_npzs()
 

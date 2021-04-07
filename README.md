@@ -2,7 +2,7 @@
 
 ## Setup
 
-(some small packages may be missing)
+(some small packages may be missing, feel free to check the [environment.yml](environment.yml))
 
 ```
 conda create -n mymlenv python=3.8
