@@ -356,18 +356,18 @@ class SimpleEmbeddingNetwork(nn.Module):
 
 def main():
     ckpt_dir = strftime('ckpts_%b%d_%H%M%S')
-    n_epochs = 10
+    n_epochs = 50
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    norm = torch.tensor([1., 1., 1.])
+    norm = torch.tensor([1., 1., 1., 1.])
     model = SimpleEmbeddingNetwork(
-        input_dim=3, 
+        input_dim=4, 
         hidden_dim=16, 
-        output_dim=3,
+        output_dim=4,
         ncats_out=2,
         conv_depth=2, 
         edgecat_depth=2, 
-        k=4,
+        k=8,
         aggr='add',
         norm=norm,
         ).to(device)
@@ -375,7 +375,7 @@ def main():
     print('Using device', device)
 
     from dataset import DuneDataset
-    batch_size = 8
+    batch_size = 6
     train_dataset = DuneDataset('data/train')
     test_dataset = DuneDataset('data/test')
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
@@ -388,7 +388,7 @@ def main():
         lr=0.001, weight_decay=1e-3
         )
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, factor=.7, patience=30
+        optimizer, factor=.7, patience=10
         )
 
 
@@ -465,9 +465,9 @@ def main():
             loss = (loss_hinge + loss_ce) / batch_size
             # avg_loss += loss.item()
 
-            print('loss_hinge:', loss_hinge.item())
-            print('loss_ce:', loss_ce.item())
-            print('loss:', loss.item())
+            # print('loss_hinge:', loss_hinge.item())
+            # print('loss_ce:', loss_ce.item())
+            # print('loss:', loss.item())
             # print('avg_loss:', avg_loss)
 
             loss.backward()

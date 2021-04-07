@@ -103,6 +103,7 @@ class DuneDataset(Dataset):
             X[:,0] = 0.5 + (X[:,0] / 1600.)
             X[:,1] /= 600.
             X[:,2] /= 700.
+            X[:,3] /= 250.
             data = Data(
                 x = torch.from_numpy(X),
                 y = torch.LongTensor(d['y'])
@@ -113,18 +114,22 @@ class DuneDataset(Dataset):
         ext_x = ExtremaRecorder()
         ext_y = ExtremaRecorder()
         ext_z = ExtremaRecorder()
+        ext_c = ExtremaRecorder()
         for i, f in tqdm.tqdm(enumerate(self.raw_file_names), total=len(self.raw_file_names)):
             d = np.load(self.raw_dir + '/' + f)
             ext_x.update(d['X'][:,0])
             ext_y.update(d['X'][:,1])
             ext_z.update(d['X'][:,2])
+            ext_c.update(d['X'][:,3])
         print('Max dims:')
         print('x: ', ext_x)
         print('y: ', ext_y)
         print('z: ', ext_z)
+        print('c: ', ext_c)
         ext_x.hist('extrema_x.png')
         ext_y.hist('extrema_y.png')
         ext_z.hist('extrema_z.png')
+        ext_c.hist('extrema_c.png')
 
 def make_npzs():
     train_outdir = 'data/train/raw/'
@@ -154,7 +159,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         'action', type=str,
-        choices=['reprocess', 'extrema', 'fromscratch'],
+        choices=['reprocess', 'extrema', 'fromscratch', 'onlynpzs'],
         )
     args = parser.parse_args()
 
@@ -164,9 +169,14 @@ def main():
         DuneDataset('data/train')
         DuneDataset('data/test')
 
+    elif args.action == 'onlynpzs':
+        if osp.isdir('data'): shutil.rmtree('data')
+        make_npzs()
+
     elif args.action == 'reprocess':
-        if osp.isdir('data/processed'): shutil.rmtree('data/processed')
+        if osp.isdir('data/train/processed'): shutil.rmtree('data/train/processed')
         DuneDataset('data/train')
+        if osp.isdir('data/test/processed'): shutil.rmtree('data/test/processed')
         DuneDataset('data/test')
 
     elif args.action == 'extrema':
