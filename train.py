@@ -355,31 +355,57 @@ class SimpleEmbeddingNetwork(nn.Module):
 
 
 def main():
+    from dataset import DuneDataset
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '-l', '--limited', action='store_true',
+        help='Use the dataset with limited number of tracks instead'
+        )
+    args = parser.parse_args()
+
     ckpt_dir = strftime('ckpts_%b%d_%H%M%S')
     n_epochs = 50
-
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    norm = torch.tensor([1., 1., 1., 1.])
-    model = SimpleEmbeddingNetwork(
-        input_dim=4, 
-        hidden_dim=16, 
-        output_dim=4,
-        ncats_out=2,
-        conv_depth=2, 
-        edgecat_depth=2, 
-        k=8,
-        aggr='add',
-        norm=norm,
-        ).to(device)
-    print('Model:\n',model)
     print('Using device', device)
+    norm = torch.tensor([1., 1., 1., 1.])
 
-    from dataset import DuneDataset
-    batch_size = 6
-    train_dataset = DuneDataset('data/train')
-    test_dataset = DuneDataset('data/test')
+    if args.limited:
+        batch_size = 16
+        train_dataset = DuneDataset('data_lim/train')
+        test_dataset = DuneDataset('data_lim/test')
+        model = SimpleEmbeddingNetwork(
+            input_dim=4, 
+            hidden_dim=16, 
+            output_dim=2,
+            ncats_out=2,
+            conv_depth=6, 
+            edgecat_depth=3, 
+            k=16,
+            aggr='add',
+            norm=norm,
+            ).to(device)
+    else:
+        batch_size = 6
+        train_dataset = DuneDataset('data/train')
+        test_dataset = DuneDataset('data/test')
+        model = SimpleEmbeddingNetwork(
+            input_dim=4, 
+            hidden_dim=16, 
+            output_dim=2,
+            ncats_out=2,
+            conv_depth=2, 
+            edgecat_depth=2, 
+            k=8,
+            aggr='add',
+            norm=norm,
+            ).to(device)
+
+    print('Model:\n',model)
+
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
+
 
     optimizer = torch.optim.AdamW([
         {'params': list(model.inputnet.parameters()) + list(model.edgeconvs.parameters()) + list(model.output.parameters())},

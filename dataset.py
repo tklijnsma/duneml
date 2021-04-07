@@ -142,10 +142,10 @@ class DuneDataset(Dataset):
         ext_z.hist('extrema_z.png')
         ext_c.hist('extrema_c.png')
 
-def make_npzs():
+def make_npzs(data_dir='data', use_max_ntracks=False):
     print('Making individual .npz files...')
-    train_outdir = 'data/train/raw/'
-    test_outdir = 'data/test/raw/'
+    train_outdir = data_dir + '/train/raw/'
+    test_outdir = data_dir + '/test/raw/'
     if not osp.isdir(train_outdir): os.makedirs(train_outdir)
     if not osp.isdir(test_outdir): os.makedirs(test_outdir)
     i_event = -1
@@ -157,6 +157,12 @@ def make_npzs():
                     current_event = np.array(current_event)
                     X = current_event[:,1:]
                     y = current_event[:,0].flatten()
+                    if use_max_ntracks:
+                        # Keep only some clusters
+                        last_id_kept = y[np.random.randint(2000, 3000)]
+                        cutoff_index = np.argmax(y > last_id_kept)
+                        X = X[:cutoff_index]
+                        y = y[:cutoff_index]
                     # 20% to test, 80% to train
                     outdir = test_outdir if i_event % 5 == 0 else train_outdir
                     np.savez(outdir + f'/{i_event}.npz', X=X, y=y)
@@ -174,28 +180,27 @@ def main():
         'action', type=str,
         choices=['reprocess', 'extrema', 'fromscratch', 'onlynpzs'],
         )
+    parser.add_argument('-l', '--limited', action='store_true')
     args = parser.parse_args()
 
-    if args.action == 'fromscratch':
-        download_points()
-        if osp.isdir('data'): shutil.rmtree('data')
-        make_npzs()
-        DuneDataset('data/train')
-        DuneDataset('data/test')
+    data_dir = 'data_lim' if args.limited else 'data'
 
-    elif args.action == 'onlynpzs':
+    if args.action == 'onlynpzs' or args.action == 'fromscratch':
         download_points()
-        if osp.isdir('data'): shutil.rmtree('data')
-        make_npzs()
+        if osp.isdir(data_dir): shutil.rmtree(data_dir)
+        make_npzs(data_dir=data_dir, use_max_ntracks=args.limited)
+        if args.action == 'fromscratch':
+            DuneDataset(data_dir+'/train')
+            DuneDataset(data_dir+'/test')
 
     elif args.action == 'reprocess':
-        if osp.isdir('data/train/processed'): shutil.rmtree('data/train/processed')
-        DuneDataset('data/train')
-        if osp.isdir('data/test/processed'): shutil.rmtree('data/test/processed')
-        DuneDataset('data/test')
+        if osp.isdir(data_dir+'/train/processed'): shutil.rmtree(data_dir+'/train/processed')
+        DuneDataset(data_dir+'/train')
+        if osp.isdir(data_dir+'/test/processed'): shutil.rmtree(data_dir+'/test/processed')
+        DuneDataset(data_dir+'/test')
 
     elif args.action == 'extrema':
-        DuneDataset('data/train').extrema()
+        DuneDataset(data_dir+'/train').extrema()
 
 
 if __name__ == '__main__':
