@@ -375,12 +375,12 @@ def main():
         train_dataset = DuneDataset('data_lim/train')
         test_dataset = DuneDataset('data_lim/test')
         model = SimpleEmbeddingNetwork(
-            input_dim=4, 
-            hidden_dim=16, 
+            input_dim=4,
+            hidden_dim=32,
             output_dim=2,
             ncats_out=2,
-            conv_depth=6, 
-            edgecat_depth=3, 
+            conv_depth=3,
+            edgecat_depth=6,
             k=16,
             aggr='add',
             norm=norm,
@@ -390,12 +390,12 @@ def main():
         train_dataset = DuneDataset('data/train')
         test_dataset = DuneDataset('data/test')
         model = SimpleEmbeddingNetwork(
-            input_dim=4, 
-            hidden_dim=16, 
+            input_dim=4,
+            hidden_dim=16,
             output_dim=2,
             ncats_out=2,
-            conv_depth=2, 
-            edgecat_depth=2, 
+            conv_depth=2,
+            edgecat_depth=2,
             k=8,
             aggr='add',
             norm=norm,
@@ -441,7 +441,7 @@ def main():
 
             '''Compute latent space distances'''
             d_hinge, y_hinge = center_embedding_truth(coords, data.y, device=device)
-            
+
             '''Compute centers in latent space '''
             centers = scatter_mean(coords, data.y, dim=0, dim_size=(torch.max(data.y).item()+1))
             
