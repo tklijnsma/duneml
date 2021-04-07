@@ -6,8 +6,6 @@ import torch
 from torch_geometric.data import (Data, Dataset)
 import tqdm
 import json
-import uptools
-import seutils
 from math import pi
 
 import random
