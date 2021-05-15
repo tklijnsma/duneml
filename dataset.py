@@ -165,8 +165,10 @@ def make_npzs(data_dir='data', use_max_ntracks=False):
                         y = y[:cutoff_index]
                     # 20% to test, 80% to train
                     outdir = test_outdir if i_event % 5 == 0 else train_outdir
-                    np.savez(outdir + f'/{i_event}.npz', X=X, y=y)
+                    np.savez(outdir + f'/{i_event}.npz', X=X, y=y, event_id=event_id)
                     del current_event
+                line = line.split()
+                event_id = np.array([int(line[1]), int(line[3]), int(line[5])])
                 current_event = []
                 i_event += 1
                 if i_event % 100 == 0: print(i_event)
